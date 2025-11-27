@@ -14,7 +14,7 @@ def get_database():
         username='admin',
         password='admin123'
     )
-    db = client.ley_caldera_db
+    db = client.LeyCaldera_DB
     return db
 
 # Función para generar un codigo unico a cada entidad
@@ -36,6 +36,46 @@ def not_found(error):
 def internal_error(error):
     return make_response(jsonify({'error': 'Error interno del servidor'}), 500)
 
+
+# Ruta de juntas postman
+@app.route('/api/juntas', methods=['POST'])
+# Registrar junta
+def registrar_junta():
+    if not request.json:
+        abort(400)
+
+    data = request.json
+
+    try:
+        db = get_database()
+        codigo = generate_code("JUN")
+
+        junta = {
+            "codigo": codigo,
+            "nombre": data['nombre'],
+            "personeria_juridica": data['personeria_juridica'],
+            "vencimiento_personeria": data['vencimiento_personeria'],
+            "distrito": data['distrito'],
+            "ubicacion": data['ubicacion'],
+            "telefono": data['telefono'],
+            "director": data['director'],
+            "cuenta_bancaria": data.get('cuenta_bancaria', {}),
+            "estudiantes_matriculados": data.get('estudiantes_matriculados', 0),
+            "fecha_registro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "activo": True
+        }
+
+        result = db.juntas.insert_one(junta)
+
+        return jsonify({
+            "mensaje": "Junta registrada exitosamente",
+            "codigo": codigo,
+            "id": str(result.inserted_id)
+        }), 201
+
+    except Exception as e:
+        print(f"Error: {e}")
+        abort(500)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
