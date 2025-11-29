@@ -77,5 +77,65 @@ def registrar_junta():
         print(f"Error: {e}")
         abort(500)
 
+#Ruta registrar un hogar y metodo
+@app.route('/api/hogares', methods=['POST'])
+def registrar_hogar():
+
+    if not request.json:
+        abort(400)
+
+    #Guarda los datos
+    data = request.json
+
+    try:
+        db = get_database()
+        # Genera un código único para el nuevo hogar.
+        codigo = generate_code("HOG")
+
+        hogar = {
+            "codigo": codigo,
+            "nombre": data['nombre'],
+            "distrito": data['distrito'],
+            "ubicacion": data['ubicacion'],
+            "telefono": data['telefono'],
+            "tipo_atencion": data['tipo_atencion'],
+            "puntuacion": data['puntuacion'],
+            "horario_atencion": data['horario_atencion'],
+            "poblacion_anual": data.get('poblacion_anual', 0), #Si no envían poblacion_anual se pone 0 como valor
+            "junta_directiva": {
+                "presidente": data.get('presidente', {}),
+                "tesorero": data.get('tesorero', {})
+            },
+            "fecha_registro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "activo": True
+        }
+
+        result = db.hogares.insert_one(hogar)
+
+        return jsonify({
+            "mensaje": "Hogar registrado exitosamente",
+            "codigo": codigo
+        }), 201
+
+    except Exception as e:
+        abort(500)
+
+@app.route('/api/hogares', methods=['GET'])
+def obtener_hogares():
+
+
+    try:
+        db = get_database()
+        hogares = list(db.hogares.find({"activo": True}))
+
+        #Convierte el ObjectId de MongoDB a string para poder retornarlo en JSON.
+        for hogar in hogares:
+            hogar['_id'] = str(hogar['_id'])
+
+        return jsonify({"hogares": hogares}), 200
+
+    except Exception as e:
+        abort(500)
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
