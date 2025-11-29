@@ -137,5 +137,66 @@ def obtener_hogares():
     except Exception as e:
         abort(500)
 
+#  Ruta POST: Registrar institución
+
+@app.route('/api/instituciones', methods=['POST'])
+def registrar_institucion():
+    """Registra una nueva institución"""
+    if not request.json:
+        abort(400)
+
+    data = request.json
+
+    try:
+        db = get_database()
+        codigo = generate_code("INS")
+
+        institucion = {
+            "codigo": codigo,
+            "nombre": data['nombre'],
+            "personeria_juridica": data.get('personeria_juridica'),
+            "vencimiento_personeria": data.get('vencimiento_personeria'),
+            "descripcion": data['descripcion'],
+            "distrito": data['distrito'],
+            "ubicacion": data['ubicacion'],
+            "telefono": data['telefono'],
+            "email": data['email'],
+            "porcentaje_asignado": data['porcentaje_asignado'],
+            "junta_directiva": {
+                "presidente": data.get('presidente', {}),
+                "tesorero": data.get('tesorero', {})
+            },
+            "cuenta_bancaria": data.get('cuenta_bancaria', {}),
+            "fecha_registro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "activo": True
+        }
+
+        result = db.instituciones.insert_one(institucion)
+
+        return jsonify({
+            "mensaje": "Institución registrada exitosamente",
+            "codigo": codigo
+        }), 201
+
+    except Exception as e:
+        abort(500)
+
+# Ruta GET: Listar instituciones activas
+@app.route('/api/instituciones', methods=['GET'])
+def obtener_instituciones():
+    """Obtiene lista de instituciones"""
+    try:
+        db = get_database()
+        instituciones = list(db.instituciones.find({"activo": True}))
+
+        for inst in instituciones:
+            inst['_id'] = str(inst['_id'])
+
+        return jsonify({"instituciones": instituciones}), 200
+    except Exception as e:
+     abort(500)
+
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
