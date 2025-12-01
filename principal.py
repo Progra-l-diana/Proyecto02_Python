@@ -144,15 +144,18 @@ def obtener_hogares():
         abort(500)
 
 
-#Ruta de parametros
-@app.route('/api/parametros', methods=['POST'])
 
-def registrar_parametro():
+
+
+@app.route('/api/instituciones', methods=['POST'])
+def registrar_institucion():
+
 
     if not request.json:
         abort(400)
 
     data = request.json
+
     try:
         db = get_database()
 
@@ -181,21 +184,21 @@ def registrar_parametro():
         abort(500)
 
 
-@app.route('/api/parametros/<int:anio>', methods=['GET'])
-def obtener_parametros(anio):
+# Ruta GET: Listar instituciones activas
+@app.route('/api/instituciones', methods=['GET'])
+def obtener_instituciones():
 
     try:
         db = get_database()
-        parametro = db.parametros.find_one({"anio": anio})
+        instituciones = list(db.instituciones.find({"activo": True}))
 
-        if not parametro:
-            abort(404)
+        for inst in instituciones:
+            inst['_id'] = str(inst['_id'])
 
-        parametro['_id'] = str(parametro['_id'])
-        return jsonify(parametro), 200
+        return jsonify({"instituciones": instituciones}), 200
     except Exception as e:
-        print(f"Error: {e}")
-        abort(500)
+     abort(500)
+
 
 #Ruta distribucion de fondos
 @app.route('/api/distribucion/calcular', methods=['POST'])
@@ -324,6 +327,61 @@ def calcular_distribucion():
     except Exception as e:
         print(f"Error: {e}")
         abort(500, description=str(e))
+
+
+    try:
+        db = get_database()
+        codigo = generate_code("INS")
+
+        institucion = {
+            "codigo": codigo,
+            "nombre": data['nombre'],
+            "personeria_juridica": data.get('personeria_juridica'),
+            "vencimiento_personeria": data.get('vencimiento_personeria'),
+            "descripcion": data['descripcion'],
+            "distrito": data['distrito'],
+            "ubicacion": data['ubicacion'],
+            "telefono": data['telefono'],
+            "email": data['email'],
+            "porcentaje_asignado": data['porcentaje_asignado'],
+            "junta_directiva": {
+                "presidente": data.get('presidente', {}),
+                "tesorero": data.get('tesorero', {})
+            },
+            "cuenta_bancaria": data.get('cuenta_bancaria', {}),
+            "fecha_registro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "activo": True
+        }
+
+        result = db.instituciones.insert_one(institucion)
+
+        return jsonify({
+            "mensaje": "Institución registrada exitosamente",
+            "codigo": codigo
+        }), 201
+
+    except Exception as e:
+        abort(500)
+
+
+@app.route('/api/parametros/<int:anio>', methods=['GET'])
+def obtener_parametros(anio):
+
+    try:
+        db = get_database()
+        parametro = db.parametros.find_one({"anio": anio})
+
+        if not parametro:
+            abort(404)
+
+        parametro['_id'] = str(parametro['_id'])
+        return jsonify(parametro), 200
+    except Exception as e:
+        print(f"Error: {e}")
+        abort(500)
+
+
+
 
 
 if __name__ == '__main__':
