@@ -381,6 +381,66 @@ def obtener_parametros(anio):
         abort(500)
 
 
+#Ruta reportes
+@app.route('/api/reportes/pagos/<int:anio>', methods=['GET'])
+def reporte_pagos_tesorero(anio):
+
+    try:
+        db = get_database()
+        distribucion = db.distribuciones.find_one({"anio": anio})
+
+        if not distribucion:
+            abort(404, description="No hay distribución para ese año")
+
+        # Formatear para tesorero
+        reporte_pagos = []
+
+        # Juntas
+        for junta in distribucion['juntas']['detalle']:
+            beneficiario = db.juntas.find_one({"codigo": junta['codigo']})
+            if beneficiario:
+                reporte_pagos.append({
+                    "tipo": "Junta Educativa",
+                    "nombre": beneficiario['nombre'],
+                    "monto": junta['asignado'],
+                    "banco": beneficiario.get('cuenta_bancaria', {}).get('banco'),
+                    "numero_cuenta": beneficiario.get('cuenta_bancaria', {}).get('numero_cuenta')
+                })
+
+        # Instituciones
+        for inst in distribucion['instituciones']['detalle']:
+            beneficiario = db.instituciones.find_one({"codigo": inst['codigo']})
+            if beneficiario:
+                reporte_pagos.append({
+                    "tipo": "Institución",
+                    "nombre": inst['nombre'],
+                    "monto": inst['asignado'],
+                    "banco": beneficiario.get('cuenta_bancaria', {}).get('banco'),
+                    "numero_cuenta": beneficiario.get('cuenta_bancaria', {}).get('numero_cuenta')
+                })
+
+        # Hogares
+        for hogar in distribucion['hogares']['detalle']:
+            beneficiario = db.hogares.find_one({"codigo": hogar['codigo']})
+            if beneficiario:
+                reporte_pagos.append({
+                    "tipo": "Hogar",
+                    "nombre": beneficiario['nombre'],
+                    "monto": hogar['asignado'],
+                    "banco": beneficiario.get('cuenta_bancaria', {}).get('banco'),
+                    "numero_cuenta": beneficiario.get('cuenta_bancaria', {}).get('numero_cuenta')
+                })
+
+        return jsonify({
+            "anio": anio,
+            "total_a_pagar": distribucion['monto_total'],
+            "cantidad_beneficiarios": len(reporte_pagos),
+            "detalle_pagos": reporte_pagos
+        }), 200
+
+    except Exception as e:
+        print(f"Error: {e}")
+    abort(500)
 
 
 
