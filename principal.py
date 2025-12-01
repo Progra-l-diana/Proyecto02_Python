@@ -47,9 +47,13 @@ def registrar_junta():
     data = request.json
 
     try:
+
+        #Conexion con mongo
         db = get_database()
+        #Genera un codigo unico a la junta
         codigo = generate_code("JUN")
 
+        #diccionario de Python con todos los datos
         junta = {
             "codigo": codigo,
             "nombre": data['nombre'],
@@ -65,9 +69,11 @@ def registrar_junta():
             "activo": True
         }
 
+        #Se guarda la junta en la bd
         result = db.juntas.insert_one(junta)
 
-        return jsonify({
+        #Devuelve un JSON a Postman con los datos de la nueva junta e informa que se creó correctamente.
+        return jsonify({ #Transforma el diccionario a un JSON
             "mensaje": "Junta registrada exitosamente",
             "codigo": codigo,
             "id": str(result.inserted_id)
@@ -136,6 +142,189 @@ def obtener_hogares():
 
     except Exception as e:
         abort(500)
+
+
+#Ruta de parametros
+@app.route('/api/parametros', methods=['POST'])
+
+def registrar_parametro():
+
+    if not request.json:
+        abort(400)
+
+    data = request.json
+    try:
+        db = get_database()
+
+        parametro = {
+            "anio": data['anio'],
+            "monto_incop": data['monto_incop'],
+            "porcentajes": {
+                "juntas": 50,
+                "hogares": 15,
+                "instituciones": 35
+            },
+            "fecha_limite_plan_inversion": data.get('fecha_limite_plan'),
+            "fecha_limite_informe_liquidacion": data.get('fecha_limite_liquidacion'),
+            "fecha_registro": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        result = db.parametros.insert_one(parametro)
+
+        return jsonify({
+            "mensaje": "Parámetros registrados exitosamente",
+            "id": str(result.inserted_id)
+        }), 201
+
+    except Exception as e:
+        print(f"Error: {e}")
+        abort(500)
+
+
+@app.route('/api/parametros/<int:anio>', methods=['GET'])
+def obtener_parametros(anio):
+
+    try:
+        db = get_database()
+        parametro = db.parametros.find_one({"anio": anio})
+
+        if not parametro:
+            abort(404)
+
+        parametro['_id'] = str(parametro['_id'])
+        return jsonify(parametro), 200
+    except Exception as e:
+        print(f"Error: {e}")
+        abort(500)
+
+#Ruta distribucion de fondos
+@app.route('/api/distribucion/calcular', methods=['POST'])
+def calcular_distribucion():
+
+    if not request.json:
+        abort(400)
+
+    data = request.json
+    anio = data.get('anio')
+
+    if not anio:
+        abort(400, description="Se requiere el año")
+
+    try:
+        db = get_database()
+
+        parametros = db.parametros.find_one({"anio": anio})
+        if not parametros:
+            abort(404, description="No hay parámetros para ese año")
+
+        monto_total = parametros['monto_incop']
+
+        monto_juntas = monto_total * 0.50
+        monto_hogares = monto_total * 0.15
+        monto_instituciones = monto_total * 0.35
+
+        #Calculo para juntas
+        planes_juntas = list(db.planes_inversion.find({
+            "tipo_beneficiario": "junta",
+            "anio_plan": anio,
+            "estado": "presentado"
+        }))
+
+        total_estudiantes = 0
+        for plan in planes_juntas:
+            junta = db.juntas.find_one({"codigo": plan['codigo_beneficiario']})
+            if junta:
+                plan['estudiantes'] = junta.get('estudiantes_matriculados', 0)
+                total_estudiantes += plan['estudiantes']
+
+        promedio_por_estudiante = monto_juntas / total_estudiantes if total_estudiantes > 0 else 0
+
+        detalle_juntas = []
+        for plan in planes_juntas:
+            monto_asignado = promedio_por_estudiante * plan.get('estudiantes', 0)
+            detalle_juntas.append({
+                "codigo": plan['codigo_beneficiario'],
+                "solicitado": plan['total_solicitado'],
+                "asignado": round(monto_asignado, 2)
+            })
+
+        #Calculo para hogares
+        planes_hogares = list(db.planes_inversion.find({
+            "tipo_beneficiario": "hogar",
+            "anio_plan": anio,
+            "estado": "presentado"
+        }))
+
+        total_puntos = 0
+        total_personas = 0
+        for plan in planes_hogares:
+            hogar = db.hogares.find_one({"codigo": plan['codigo_beneficiario']})
+            if hogar:
+                plan['puntos'] = hogar.get('puntuacion', 0)
+                plan['personas'] = hogar.get('poblacion_anual', 0)
+                total_puntos += plan['puntos']
+                total_personas += plan['personas']
+
+        num_hogares = len(planes_hogares)
+        monto_por_puntos = monto_hogares * 0.03
+        monto_por_personas = monto_hogares * 0.70
+        monto_por_disponibilidad = monto_hogares * 0.02
+        monto_igual = monto_hogares * 0.25 / num_hogares if num_hogares > 0 else 0
+
+        detalle_hogares = []
+        for plan in planes_hogares:
+            asig_puntos = (plan['puntos'] / total_puntos) * monto_por_puntos if total_puntos > 0 else 0
+            asig_personas = (plan['personas'] / total_personas) * monto_por_personas if total_personas > 0 else 0
+            asig_disponibilidad = monto_por_disponibilidad / num_hogares if num_hogares > 0 else 0
+
+            monto_total_hogar = asig_puntos + asig_personas + asig_disponibilidad + monto_igual
+
+            detalle_hogares.append({
+                "codigo": plan['codigo_beneficiario'],
+                "solicitado": plan['total_solicitado'],
+                "asignado": round(monto_total_hogar, 2)
+            })
+
+        #Calculo para instituciones
+        instituciones_activas = list(db.instituciones.find({"activo": True}))
+
+        detalle_instituciones = []
+        for inst in instituciones_activas:
+            porcentaje = inst['porcentaje_asignado'] / 100
+            monto_asignado = monto_instituciones * porcentaje
+
+            detalle_instituciones.append({
+                "codigo": inst['codigo'],
+                "nombre": inst['nombre'],
+                "porcentaje": inst['porcentaje_asignado'],
+                "asignado": round(monto_asignado, 2)
+            })
+
+        distribucion = {
+            "anio": anio,
+            "monto_total": monto_total,
+            "fecha_calculo": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "juntas": {
+                "monto_total": monto_juntas,
+                "detalle": detalle_juntas
+            },
+            "hogares": {
+                "monto_total": monto_hogares,
+                "detalle": detalle_hogares
+            },
+            "instituciones": {
+                "monto_total": monto_instituciones,
+                "detalle": detalle_instituciones
+            }
+        }
+
+        db.distribuciones.insert_one(distribucion)
+        return jsonify(distribucion), 200
+
+    except Exception as e:
+        print(f"Error: {e}")
+        abort(500, description=str(e))
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
