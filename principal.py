@@ -138,10 +138,9 @@ def obtener_hogares():
         abort(500)
 
 #  Ruta POST: Registrar institución
-
 @app.route('/api/instituciones', methods=['POST'])
 def registrar_institucion():
-    """Registra una nueva institución"""
+
     if not request.json:
         abort(400)
 
@@ -184,7 +183,7 @@ def registrar_institucion():
 # Ruta GET: Listar instituciones activas
 @app.route('/api/instituciones', methods=['GET'])
 def obtener_instituciones():
-    """Obtiene lista de instituciones"""
+
     try:
         db = get_database()
         instituciones = list(db.instituciones.find({"activo": True}))
