@@ -1,11 +1,21 @@
+
 from flask import Flask, jsonify, abort, make_response, request
 from flask_cors import CORS
 from pymongo import MongoClient
 from datetime import datetime
 import random
 
+from carga_planes import registrar_rutas_planes
+from carga_liquidaciones import registrar_rutas_liquidaciones
+
+
+
+
 app = Flask(__name__)
 CORS(app)
+
+registrar_rutas_planes(app)
+registrar_rutas_liquidaciones(app)
 
 # Conexión MongoDB
 def get_database():
@@ -150,32 +160,47 @@ def obtener_hogares():
 @app.route('/api/instituciones', methods=['POST'])
 def registrar_institucion():
 
-
     if not request.json:
-        abort(400)
+        abort(400, description="No se recibieron datos JSON")
 
     data = request.json
 
+    required_fields = ['nombre', 'descripcion', 'distrito', 'ubicacion',
+                       'telefono', 'email', 'porcentaje_asignado']
+
+    for field in required_fields:
+        if field not in data:
+            abort(400, description=f"Campo requerido faltante: {field}")
+
     try:
         db = get_database()
+        codigo = generate_code("INS")
 
-        parametro = {
-            "anio": data['anio'],
-            "monto_incop": data['monto_incop'],
-            "porcentajes": {
-                "juntas": 50,
-                "hogares": 15,
-                "instituciones": 35
+        institucion = {
+            "codigo": codigo,
+            "nombre": data['nombre'],
+            "personeria_juridica": data.get('personeria_juridica'),
+            "vencimiento_personeria": data.get('vencimiento_personeria'),
+            "descripcion": data['descripcion'],
+            "distrito": data['distrito'],
+            "ubicacion": data['ubicacion'],
+            "telefono": data['telefono'],
+            "email": data['email'],
+            "porcentaje_asignado": data['porcentaje_asignado'],
+            "junta_directiva": {
+                "presidente": data.get('presidente', {}),
+                "tesorero": data.get('tesorero', {})
             },
-            "fecha_limite_plan_inversion": data.get('fecha_limite_plan'),
-            "fecha_limite_informe_liquidacion": data.get('fecha_limite_liquidacion'),
-            "fecha_registro": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "cuenta_bancaria": data.get('cuenta_bancaria', {}),
+            "fecha_registro": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "activo": True
         }
 
-        result = db.parametros.insert_one(parametro)
+        result = db.instituciones.insert_one(institucion)
 
         return jsonify({
-            "mensaje": "Parámetros registrados exitosamente",
+            "mensaje": "Institución registrada exitosamente",
+            "codigo": codigo,
             "id": str(result.inserted_id)
         }), 201
 
@@ -213,6 +238,8 @@ def calcular_distribucion():
     if not anio:
         abort(400, description="Se requiere el año")
 
+    anio = str(anio)
+
     try:
         db = get_database()
 
@@ -229,7 +256,7 @@ def calcular_distribucion():
         #Calculo para juntas
         planes_juntas = list(db.planes_inversion.find({
             "tipo_beneficiario": "junta",
-            "anio_plan": anio,
+            "anio_plan": int(anio),
             "estado": "presentado"
         }))
 
@@ -254,7 +281,7 @@ def calcular_distribucion():
         #Calculo para hogares
         planes_hogares = list(db.planes_inversion.find({
             "tipo_beneficiario": "hogar",
-            "anio_plan": anio,
+            "anio_plan": int(anio),
             "estado": "presentado"
         }))
 
@@ -289,19 +316,26 @@ def calcular_distribucion():
             })
 
         #Calculo para instituciones
-        instituciones_activas = list(db.instituciones.find({"activo": True}))
+        planes_instituciones = list(db.planes_inversion.find({
+            "tipo_beneficiario": "institucion",
+            "anio_plan": int(anio),
+            "estado": "presentado"
+        }))
 
         detalle_instituciones = []
-        for inst in instituciones_activas:
-            porcentaje = inst['porcentaje_asignado'] / 100
-            monto_asignado = monto_instituciones * porcentaje
+        for plan in planes_instituciones:
+            inst = db.instituciones.find_one({"codigo": plan['codigo_beneficiario']})
 
-            detalle_instituciones.append({
-                "codigo": inst['codigo'],
-                "nombre": inst['nombre'],
-                "porcentaje": inst['porcentaje_asignado'],
-                "asignado": round(monto_asignado, 2)
-            })
+            if inst:
+                porcentaje = inst['porcentaje_asignado'] / 100
+                monto_asignado = monto_instituciones * porcentaje
+
+                detalle_instituciones.append({
+                    "codigo": inst['codigo'],
+                    "nombre": inst['nombre'],
+                    "porcentaje": inst['porcentaje_asignado'],
+                    "asignado": round(monto_asignado, 2)
+                })
 
         distribucion = {
             "anio": anio,
@@ -321,9 +355,14 @@ def calcular_distribucion():
             }
         }
 
-        db.distribuciones.insert_one(distribucion)
-        return jsonify(distribucion), 200
+        distribucion_para_bd = distribucion.copy()
+        db.distribuciones.delete_one({"anio": anio})
+        result = db.distribuciones.insert_one(distribucion_para_bd)
 
+        respuesta = distribucion.copy()
+        respuesta['_id'] = str(result.inserted_id)
+
+        return jsonify(respuesta), 200
     except Exception as e:
         print(f"Error: {e}")
         abort(500, description=str(e))
@@ -353,23 +392,58 @@ def calcular_distribucion():
             "activo": True
         }
 
-        result = db.instituciones.insert_one(institucion)
+        db.instituciones.insert_one(institucion)
 
         return jsonify({
             "mensaje": "Institución registrada exitosamente",
             "codigo": codigo
         }), 201
 
+
     except Exception as e:
         abort(500)
 
+@app.route('/api/parametros', methods=['POST'])
+
+def registrar_parametro():
+
+    if not request.json:
+        abort(400)
+
+    data = request.json
+    try:
+        db = get_database()
+
+        parametro = {
+            "anio": data['anio'],
+            "monto_incop": data['monto_incop'],
+            "porcentajes": {
+                "juntas": 50,
+                "hogares": 15,
+                "instituciones": 35
+            },
+            "fecha_limite_plan_inversion": data.get('fecha_limite_plan'),
+            "fecha_limite_informe_liquidacion": data.get('fecha_limite_liquidacion'),
+            "fecha_registro": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        result = db.parametros.insert_one(parametro)
+
+        return jsonify({
+            "mensaje": "Parámetros registrados exitosamente",
+            "id": str(result.inserted_id)
+        }), 201
+
+    except Exception as e:
+        print(f"Error: {e}")
+        abort(500)
 
 @app.route('/api/parametros/<int:anio>', methods=['GET'])
 def obtener_parametros(anio):
 
     try:
         db = get_database()
-        parametro = db.parametros.find_one({"anio": anio})
+        parametro = db.parametros.find_one({"anio": str(anio)})
 
         if not parametro:
             abort(404)
@@ -395,7 +469,7 @@ def reporte_pagos_tesorero(anio):
         # Formatear para tesorero
         reporte_pagos = []
 
-        # Juntas
+        #Juntas
         for junta in distribucion['juntas']['detalle']:
             beneficiario = db.juntas.find_one({"codigo": junta['codigo']})
             if beneficiario:
@@ -407,7 +481,7 @@ def reporte_pagos_tesorero(anio):
                     "numero_cuenta": beneficiario.get('cuenta_bancaria', {}).get('numero_cuenta')
                 })
 
-        # Instituciones
+        #Instituciones
         for inst in distribucion['instituciones']['detalle']:
             beneficiario = db.instituciones.find_one({"codigo": inst['codigo']})
             if beneficiario:
@@ -419,7 +493,7 @@ def reporte_pagos_tesorero(anio):
                     "numero_cuenta": beneficiario.get('cuenta_bancaria', {}).get('numero_cuenta')
                 })
 
-        # Hogares
+        #Hogares
         for hogar in distribucion['hogares']['detalle']:
             beneficiario = db.hogares.find_one({"codigo": hogar['codigo']})
             if beneficiario:
@@ -441,6 +515,80 @@ def reporte_pagos_tesorero(anio):
     except Exception as e:
         print(f"Error: {e}")
     abort(500)
+
+
+#Ruta para obtener entidades rechazadas
+@app.route('/api/reportes/rechazados/<int:anio>', methods=['GET'])
+def obtener_beneficiarios_rechazados(anio):
+
+    try:
+        db = get_database()
+        rechazados = []
+
+
+        #Revisar juntas
+
+        juntas = db.juntas.find({"activo": True})
+        for junta in juntas:
+            plan = db.planes_inversion.find_one({
+                "codigo_beneficiario": junta["codigo"],
+                "anio_plan": anio
+            })
+
+            # No entregó plan
+            if not plan:
+                rechazados.append({
+                    "tipo": "Junta Educativa",
+                    "codigo": junta["codigo"],
+                    "nombre": junta["nombre"],
+                    "razon": "No presentó plan de inversión"
+                })
+
+
+        #Revisar instituciones
+
+        instituciones = db.instituciones.find({"activo": True})
+        for inst in instituciones:
+            plan = db.planes_inversion.find_one({
+                "codigo_beneficiario": inst["codigo"],
+                "anio_plan": anio
+            })
+
+            if not plan:
+                rechazados.append({
+                    "tipo": "Institución",
+                    "codigo": inst["codigo"],
+                    "nombre": inst["nombre"],
+                    "razon": "No presentó plan de inversión"
+                })
+
+        # ========================
+        # 3. Revisar HOGARES
+        # ========================
+        hogares = db.hogares.find({"activo": True})
+        for hogar in hogares:
+            plan = db.planes_inversion.find_one({
+                "codigo_beneficiario": hogar["codigo"],
+                "anio_plan": anio
+            })
+
+            if not plan:
+                rechazados.append({
+                    "tipo": "Hogar",
+                    "codigo": hogar["codigo"],
+                    "nombre": hogar["nombre"],
+                    "razon": "No presentó plan de inversión"
+                })
+
+        return jsonify({
+            "anio": anio,
+            "total_rechazados": len(rechazados),
+            "rechazados": rechazados
+        }), 200
+
+    except Exception as e:
+        print("Error:", e)
+        abort(500, description=str(e))
 
 
 

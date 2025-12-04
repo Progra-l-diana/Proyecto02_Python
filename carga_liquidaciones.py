@@ -1,7 +1,5 @@
 
 #Modulo de carga de informe de liquidacion
-# Universidad Técnica Nacional - ITI-311
-
 from datetime import datetime
 from flask import jsonify, abort, request
 from pymongo import MongoClient
@@ -18,10 +16,10 @@ def get_database():
             username='admin',
             password='admin123'
         )
-        db = client.ley_caldera_db
+        db = client.LeyCaldera_DB
         return db
     except Exception as e:
-        print(f"Error conectando a MongoDB: {e}")
+        print(f"Error al conectar a MongoDB: {e}")
         return None
 
 
@@ -29,11 +27,10 @@ def get_database():
 #funcion para registrar rutas
 
 def registrar_rutas_liquidaciones(app):
-    "Registra las rutas de informes de liquidación en la aplicación Flask"
 
     @app.route('/api/informes-liquidacion/cargar', methods=['POST'])
     def cargar_informe_liquidacion():
-        """Carga informe de liquidación desde archivo Excel"""
+
         if 'archivo' not in request.files:
             abort(400, description="No se envió archivo")
 
@@ -47,28 +44,28 @@ def registrar_rutas_liquidaciones(app):
         try:
             db = get_database()
 
-            # Leer archivo Excel (saltando primeras 15 filas que son encabezado)
+            #Leer archivo Excel (saltando primeras 15 filas que son encabezado)
             df = pd.read_excel(archivo, skiprows=15)
 
-            # El Excel tiene columnas extra, seleccionamos las importantes
+            #El Excel tiene columnas extra, seleccionamos las importantes
             df.columns = ['detalle', 'col2', 'col3', 'col4', 'col5', 'col6',
                           'proveedor', 'factura', 'requerido', 'asignado', 'faltante']
 
-            # Seleccionar solo columnas necesarias
+            #Seleccionar solo columnas necesarias
             df = df[['detalle', 'proveedor', 'factura', 'requerido', 'asignado', 'faltante']]
 
-            # Limpiar datos - eliminar filas vacías
+            #Limpiar datos - eliminar filas vacías
             df = df.dropna(subset=['detalle', 'proveedor', 'factura'])
 
-            # Convertir datos numéricos
+            #Convertir datos numéricos
             df['requerido'] = pd.to_numeric(df['requerido'], errors='coerce').fillna(0.0)
             df['asignado'] = pd.to_numeric(df['asignado'], errors='coerce').fillna(0.0)
             df['faltante'] = pd.to_numeric(df['faltante'], errors='coerce').fillna(0.0)
 
-            # Convertir DataFrame a lista de diccionarios
+            #Convertir DataFrame a lista de diccionarios
             detalle_items = df.to_dict(orient='records')
 
-            # Crear documento para MongoDB
+            #Crear documento para MongoDB
             informe = {
                 "codigo_beneficiario": codigo_beneficiario,
                 "anio_liquidacion": int(anio),
@@ -82,7 +79,7 @@ def registrar_rutas_liquidaciones(app):
                 "fecha_registro": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
 
-            # Insertar en MongoDB
+            #Insertar en MongoDB
             result = db.informes_liquidacion.insert_one(informe)
 
             return jsonify({
@@ -98,14 +95,16 @@ def registrar_rutas_liquidaciones(app):
             print(f"Error al cargar informe de liquidación: {e}")
             abort(500, description=f"Error al procesar archivo: {str(e)}")
 
+
+
     @app.route('/api/informes-liquidacion', methods=['GET'])
     def obtener_informes_liquidacion():
-        """Obtiene lista de todos los informes de liquidación"""
+
         try:
             db = get_database()
             anio = request.args.get('anio')
 
-            # Construir filtro
+
             filtro = {}
             if anio:
                 filtro['anio_liquidacion'] = int(anio)
@@ -123,7 +122,7 @@ def registrar_rutas_liquidaciones(app):
 
     @app.route('/api/informes-liquidacion/<string:codigo_beneficiario>', methods=['GET'])
     def obtener_informe_especifico(codigo_beneficiario):
-        """Obtiene informe de liquidación de un beneficiario específico"""
+
         try:
             db = get_database()
             anio = request.args.get('anio')
