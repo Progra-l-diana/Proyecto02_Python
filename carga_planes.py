@@ -14,7 +14,7 @@ def get_database():
             username='admin',
             password='admin123'
         )
-        db = client.ley_caldera_db
+        db = client.LeyCaldera_DB
         return db
     except Exception as e:
         print(f"Error conectando a MongoDB: {e}")
@@ -25,7 +25,6 @@ def get_database():
 # FUNCIÓN PARA REGISTRAR RUTAS EN LA APP PRINCIPAL
 
 def registrar_rutas_planes(app):
-
 
     @app.route('/api/planes-inversion/cargar', methods=['POST'])
     def cargar_plan_inversion():
@@ -124,7 +123,7 @@ def registrar_rutas_planes(app):
 
     @app.route('/api/planes-inversion/<string:codigo_beneficiario>', methods=['GET'])
     def obtener_plan_especifico(codigo_beneficiario):
-        """Obtiene plan de inversión de un beneficiario específico"""
+
         try:
             db = get_database()
             anio = request.args.get('anio')
