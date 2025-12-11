@@ -93,6 +93,23 @@ def registrar_junta():
         print(f"Error: {e}")
         abort(500)
 
+
+
+@app.route('/api/juntas', methods=['GET'])
+def obtener_juntas():
+
+    try:
+        db = get_database()
+        juntas = list(db.juntas.find({"activo": True}))
+
+        for junta in juntas:
+            junta['_id'] = str(junta['_id'])
+
+        return jsonify({"juntas": juntas, "total": len(juntas)}), 200
+    except Exception as e:
+        print(f"Error: {e}")
+        abort(500)
+
 #Ruta registrar un hogar y metodo
 @app.route('/api/hogares', methods=['POST'])
 def registrar_hogar():
@@ -450,13 +467,14 @@ def obtener_parametros(anio):
 
         parametro['_id'] = str(parametro['_id'])
         return jsonify(parametro), 200
+
     except Exception as e:
         print(f"Error: {e}")
         abort(500)
 
 
 #Ruta reportes
-@app.route('/api/reportes/pagos/<int:anio>', methods=['GET'])
+@app.route('/api/reportes/pagos/<anio>', methods=['GET'])
 def reporte_pagos_tesorero(anio):
 
     try:
@@ -466,7 +484,7 @@ def reporte_pagos_tesorero(anio):
         if not distribucion:
             abort(404, description="No hay distribución para ese año")
 
-        # Formatear para tesorero
+        #Formatear para tesorero
         reporte_pagos = []
 
         #Juntas
@@ -527,7 +545,6 @@ def obtener_beneficiarios_rechazados(anio):
 
 
         #Revisar juntas
-
         juntas = db.juntas.find({"activo": True})
         for junta in juntas:
             plan = db.planes_inversion.find_one({
@@ -546,7 +563,6 @@ def obtener_beneficiarios_rechazados(anio):
 
 
         #Revisar instituciones
-
         instituciones = db.instituciones.find({"activo": True})
         for inst in instituciones:
             plan = db.planes_inversion.find_one({
@@ -562,9 +578,8 @@ def obtener_beneficiarios_rechazados(anio):
                     "razon": "No presentó plan de inversión"
                 })
 
-        # ========================
-        # 3. Revisar HOGARES
-        # ========================
+
+        #Revisar hogares
         hogares = db.hogares.find({"activo": True})
         for hogar in hogares:
             plan = db.planes_inversion.find_one({
